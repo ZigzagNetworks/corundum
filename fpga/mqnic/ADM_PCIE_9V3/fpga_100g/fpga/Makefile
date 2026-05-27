@@ -137,6 +137,12 @@ CONFIG_TCL_FILES = ./config.tcl
 
 include ../common/vivado.mk
 
+.PHONY: synth-only impl-only
+
+synth-only: $(PROJECT).runs/synth_1/$(PROJECT).dcp
+
+impl-only: $(PROJECT).runs/impl_1/$(PROJECT)_routed.dcp
+
 %_fallback.bit: %.bit
 	echo "open_project $*.xpr" > generate_fallback_bit.tcl
 	echo "open_run impl_1" >> generate_fallback_bit.tcl

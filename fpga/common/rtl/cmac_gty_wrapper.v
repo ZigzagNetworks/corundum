@@ -251,6 +251,7 @@ always @(posedge drp_clk) begin
     end
 end
 
+`ifndef CMAC_RS_FEC_EXCLUDE
 reg cmac_ctl_tx_rsfec_enable_reg = RS_FEC_ENABLE;
 reg cmac_ctl_rx_rsfec_enable_reg = RS_FEC_ENABLE;
 reg cmac_ctl_rsfec_ieee_error_indication_mode_reg = 1'b0;
@@ -266,6 +267,7 @@ wire [7:0] cmac_stat_rx_rsfec_lane_mapping;
 wire cmac_stat_rx_rsfec_cw_inc;
 wire cmac_stat_rx_rsfec_corrected_cw_inc;
 wire cmac_stat_rx_rsfec_uncorrected_cw_inc;
+`endif
 
 wire [20*7-1:0] cmac_rx_lane_aligner_fill;
 
@@ -384,6 +386,7 @@ always @(posedge drp_clk) begin
     rx_rst_sync_2_reg <= rx_rst_sync_1_reg;
 end
 
+`ifndef CMAC_RS_FEC_EXCLUDE
 reg cmac_ctl_tx_rsfec_enable_drp_reg = RS_FEC_ENABLE;
 reg cmac_ctl_tx_rsfec_enable_sync_reg = RS_FEC_ENABLE;
 reg cmac_ctl_rx_rsfec_enable_drp_reg = RS_FEC_ENABLE;
@@ -410,7 +413,9 @@ always @(posedge rx_clk) begin
     cmac_ctl_rx_rsfec_enable_indication_sync_reg <= cmac_ctl_rx_rsfec_enable_indication_drp_reg;
     cmac_ctl_rx_rsfec_enable_indication_reg <= cmac_ctl_rx_rsfec_enable_indication_sync_reg;
 end
+`endif
 
+`ifndef CMAC_RS_FEC_EXCLUDE
 reg [3:0] cmac_stat_rx_rsfec_am_lock_sync_1_reg = 0, cmac_stat_rx_rsfec_am_lock_sync_2_reg = 0;
 reg cmac_stat_rx_rsfec_hi_ser_sync_1_reg = 1'b0, cmac_stat_rx_rsfec_hi_ser_sync_2_reg = 1'b0;
 reg cmac_stat_rx_rsfec_lane_alignment_status_sync_1_reg = 1'b0, cmac_stat_rx_rsfec_lane_alignment_status_sync_2_reg = 1'b0;
@@ -429,6 +434,7 @@ always @(posedge drp_clk) begin
     cmac_stat_rx_rsfec_lane_mapping_sync_1_reg <= cmac_stat_rx_rsfec_lane_mapping;
     cmac_stat_rx_rsfec_lane_mapping_sync_2_reg <= cmac_stat_rx_rsfec_lane_mapping_sync_1_reg;
 end
+`endif
 
 reg [20*7-1:0] cmac_rx_lane_aligner_fill_sync_1_reg = 0, cmac_rx_lane_aligner_fill_sync_2_reg = 0;
 
@@ -599,6 +605,7 @@ always @(posedge drp_clk) begin
                     cmac_ctl_rx_force_resync_drp_reg <= drp_di_reg[0];
                     cmac_ctl_rx_test_pattern_drp_reg <= drp_di_reg[1];
                 end
+`ifndef CMAC_RS_FEC_EXCLUDE
                 // FEC
                 16'h0200: begin
                     cmac_ctl_tx_rsfec_enable_drp_reg <= drp_di_reg[0];
@@ -609,6 +616,7 @@ always @(posedge drp_clk) begin
                     cmac_ctl_rx_rsfec_enable_indication_drp_reg <= drp_di_reg[1];
                     cmac_ctl_rsfec_ieee_error_indication_mode_drp_reg <= drp_di_reg[8];
                 end
+`endif
             endcase
         end
         case (drp_addr_reg[15:0])
@@ -743,6 +751,7 @@ always @(posedge drp_clk) begin
                 drp_do_ctrl_reg[7:0] <= cmac_rx_lane_aligner_fill_sync_2_reg[7*18 +: 7];
                 drp_do_ctrl_reg[15:8] <= cmac_rx_lane_aligner_fill_sync_2_reg[7*19 +: 7];
             end
+`ifndef CMAC_RS_FEC_EXCLUDE
             // FEC
             16'h0200: begin
                 drp_do_ctrl_reg[0] <= cmac_ctl_tx_rsfec_enable_drp_reg;
@@ -770,6 +779,7 @@ always @(posedge drp_clk) begin
             16'h0207: drp_do_ctrl_reg <= cmac_stat_rx_rsfec_lane_fill_sync_2_reg[14*1 +: 14];
             16'h0208: drp_do_ctrl_reg <= cmac_stat_rx_rsfec_lane_fill_sync_2_reg[14*2 +: 14];
             16'h0209: drp_do_ctrl_reg <= cmac_stat_rx_rsfec_lane_fill_sync_2_reg[14*3 +: 14];
+`endif
         endcase
     end
 
@@ -781,11 +791,13 @@ always @(posedge drp_clk) begin
         rx_reset_drp_reg <= 1'b0;
         gt_rx_reset_drp_reg <= 1'b0;
 
+`ifndef CMAC_RS_FEC_EXCLUDE
         cmac_ctl_tx_rsfec_enable_drp_reg <= RS_FEC_ENABLE;
         cmac_ctl_rx_rsfec_enable_drp_reg <= RS_FEC_ENABLE;
         cmac_ctl_rsfec_ieee_error_indication_mode_drp_reg <= 1'b0;
         cmac_ctl_rx_rsfec_enable_correction_drp_reg <= 1'b1;
         cmac_ctl_rx_rsfec_enable_indication_drp_reg <= 1'b1;
+`endif
 
         cmac_ctl_rx_enable_drp_reg <= 1'b1;
         cmac_ctl_rx_force_resync_drp_reg <= 1'b0;
@@ -1410,6 +1422,7 @@ cmac_usplus cmac_inst (
     .rxctrl0_out(cmac_rxctrl0),
     .rxctrl1_out(cmac_rxctrl1),
 
+`ifndef CMAC_RS_FEC_EXCLUDE
     .ctl_tx_rsfec_enable(cmac_ctl_tx_rsfec_enable_reg),
     .ctl_rx_rsfec_enable(cmac_ctl_rx_rsfec_enable_reg),
     .ctl_rsfec_ieee_error_indication_mode(cmac_ctl_rsfec_ieee_error_indication_mode_reg),
@@ -1433,6 +1446,7 @@ cmac_usplus cmac_inst (
     .stat_rx_rsfec_cw_inc(cmac_stat_rx_rsfec_cw_inc),
     .stat_rx_rsfec_corrected_cw_inc(cmac_stat_rx_rsfec_corrected_cw_inc),
     .stat_rx_rsfec_uncorrected_cw_inc(cmac_stat_rx_rsfec_uncorrected_cw_inc),
+`endif
 
     .rx_axis_tvalid(cmac_rx_axis_tvalid),
     .rx_axis_tdata(cmac_rx_axis_tdata),

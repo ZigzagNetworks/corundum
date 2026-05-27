@@ -103,6 +103,13 @@ dict set params RX_HASH_ENABLE "1"
 dict set params RX_CHECKSUM_ENABLE "1"
 dict set params PFC_ENABLE "1"
 dict set params LFC_ENABLE [dict get $params PFC_ENABLE]
+
+# CMAC RS-FEC enable
+set cmac_rs_fec [get_property CONFIG.INCLUDE_RS_FEC [get_ips cmac_usplus]]
+dict set params CMAC_RS_FEC_ENABLE $cmac_rs_fec
+if {!$cmac_rs_fec} {
+    set_property verilog_define {CMAC_RS_FEC_EXCLUDE} [get_filesets sources_1]
+}
 dict set params TX_FIFO_DEPTH "32768"
 dict set params RX_FIFO_DEPTH "131072"
 dict set params MAX_TX_SIZE "9214"

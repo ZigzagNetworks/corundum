@@ -1,0 +1,9 @@
+*.rpt
+fpga_*g/fpga/fpga.*
+fpga_*g/fpga/defines.v
+fpga_*g/fpga/rev/*
+fpga_*g/fpga/update_config.tcl
+fpga_*g/fpga/generate_bit.tcl
+fpga_*g/fpga/create_project.tcl
+fpga_*g/fpga/run_impl.tcl
+fpga_*g/fpga/run_synth.tcl

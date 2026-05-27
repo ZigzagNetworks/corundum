@@ -73,6 +73,7 @@ module fpga #
     parameter RX_CHECKSUM_ENABLE = 1,
     parameter PFC_ENABLE = 1,
     parameter LFC_ENABLE = PFC_ENABLE,
+    parameter CMAC_RS_FEC_ENABLE = 1,
     parameter TX_FIFO_DEPTH = 32768,
     parameter RX_FIFO_DEPTH = 131072,
     parameter MAX_TX_SIZE = 9214,
@@ -1009,7 +1010,7 @@ cmac_gty_wrapper #(
     .AXIS_KEEP_WIDTH(AXIS_ETH_KEEP_WIDTH),
     .TX_SERDES_PIPELINE(0),
     .RX_SERDES_PIPELINE(0),
-    .RS_FEC_ENABLE(1)
+    .RS_FEC_ENABLE(CMAC_RS_FEC_ENABLE)
 )
 qsfp_0_cmac_inst (
     .xcvr_ctrl_clk(clk_125mhz_int),
@@ -1178,7 +1179,7 @@ cmac_gty_wrapper #(
     .AXIS_KEEP_WIDTH(AXIS_ETH_KEEP_WIDTH),
     .TX_SERDES_PIPELINE(0),
     .RX_SERDES_PIPELINE(0),
-    .RS_FEC_ENABLE(1)
+    .RS_FEC_ENABLE(CMAC_RS_FEC_ENABLE)
 )
 qsfp_1_cmac_inst (
     .xcvr_ctrl_clk(clk_125mhz_int),
