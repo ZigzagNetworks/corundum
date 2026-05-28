@@ -154,7 +154,118 @@ module cmac_gty_wrapper #
     input  wire                        rx_lfc_ack,
     input  wire [7:0]                  rx_pfc_en,
     output wire [7:0]                  rx_pfc_req,
-    input  wire [7:0]                  rx_pfc_ack
+    input  wire [7:0]                  rx_pfc_ack,
+
+    /* [TR] ILA - RX */
+    // RX Status
+    output wire                        cmac_stat_rx_status_o,                       // 1 when STAT_RX_ALIGNED=1 and STAT_RX_HI_BER=0 (802.3-2012)
+    output wire                        cmac_stat_rx_aligned_o,                      // all lanes aligned/de-skewed; RX ready for packet data
+    output wire                        cmac_stat_rx_aligned_err_o,                  // lane alignment failed after retries, or was lost
+    output wire                        cmac_stat_rx_misaligned_o,                   // valid PCS Lane Marker not received on all lanes simultaneously (1-cycle pulse)
+    output wire                        cmac_stat_rx_local_fault_o,                  // 1 when INTERNAL_LOCAL_FAULT or RECEIVED_LOCAL_FAULT asserted (level-sensitive)
+    output wire [19:0]                 cmac_stat_rx_block_lock_o,                   // per PCS lane: 1 = sync header lock per 802.3-2012
+    output wire [19:0]                 cmac_stat_rx_synced_o,                       // per lane: 1 = word boundary synced and receiving PCS Lane Marker Words as expected
+    output wire [19:0]                 cmac_stat_rx_synced_err_o,                   // per lane: sync failed/framing err/no marker post-sync; held until sync or other err
+    output wire [19:0]                 cmac_stat_rx_mf_err_o,                       // per lane: improperly formatted sync marker post-sync (1-cycle pulse)
+    output wire [19:0]                 cmac_stat_rx_mf_len_err_o,                   // per lane: PCS Lane Marker Words received at unexpected rate (held)
+    output wire [19:0]                 cmac_stat_rx_mf_repeat_err_o,                // per lane: 4 consecutive invalid PCS Lane Marker Words detected post-sync
+    output wire [19:0]                 cmac_stat_rx_framing_err_valid_o,            // VALID qualifier for cmac_stat_rx_framing_err_o
+    output wire [39:0]                 cmac_stat_rx_framing_err_o,                  // per lane sync header error count (qualified by _valid_o), 2b x 20
+    output wire [19:0]                 cmac_stat_rx_pcsl_demuxed_o,                 // per lane: 1 = lane successfully demuxed post sync
+    output wire [99:0]                 cmac_stat_rx_pcsl_number_o,                  // per status-pin: which PCS lane is reflected on each pin (5b x 20)
+    // RX Error Status
+    output wire [2:0]                  cmac_stat_rx_bad_fcs_o,                      // pulses per cycle on FCS/CRC32 mismatch (per PG203: 4b; IP truncates to 3b)
+    output wire [2:0]                  cmac_stat_rx_bad_code_o,                     // cycles RX PCS state machine spent in RX_E state (802.3-2012)
+    // RX fault signaling
+    output wire                        cmac_stat_rx_hi_ber_o,                       // PCS in hi-BER state (inferred)
+    output wire                        cmac_stat_rx_internal_local_fault_o,         // local fault from internal cause (inferred)
+    output wire                        cmac_stat_rx_received_local_fault_o,         // local fault received from link partner (inferred)
+    output wire                        cmac_stat_rx_remote_fault_o,                 // remote fault asserted (inferred)
+    // RX additional status
+    output wire [19:0]                 cmac_stat_rx_bip_err_o,                      // BIP8 error per PCS lane (inferred)
+    output wire [139:0]                cmac_rx_lane_aligner_fill_o,                 // aligner FIFO fill, 7b x 20 lanes (inferred)
+    // RX frame counters & classifiers
+    output wire                        cmac_stat_rx_total_good_packets_o,           // good packet received
+    output wire [2:0]                  cmac_stat_rx_total_packets_o,                // packets received this cycle
+    output wire [6:0]                  cmac_stat_rx_total_bytes_o,                  // total bytes this cycle
+    output wire [13:0]                 cmac_stat_rx_total_good_bytes_o,             // good bytes this cycle
+    output wire                        cmac_stat_rx_unicast_o,                      // unicast frame received
+    output wire                        cmac_stat_rx_multicast_o,                    // multicast frame received
+    output wire                        cmac_stat_rx_broadcast_o,                    // broadcast frame received
+    output wire                        cmac_stat_rx_vlan_o,                         // VLAN-tagged frame
+    output wire                        cmac_stat_rx_packet_bad_fcs_o,               // packet ended with bad FCS
+    output wire [2:0]                  cmac_stat_rx_stomped_fcs_o,                  // stomped FCS count
+    output wire                        cmac_stat_rx_bad_preamble_o,                 // bad preamble received
+    output wire                        cmac_stat_rx_bad_sfd_o,                      // bad SFD received
+    output wire                        cmac_stat_rx_got_signal_os_o,                // got signal ordered set
+    output wire [2:0]                  cmac_stat_rx_fragment_o,                     // fragment count
+    output wire                        cmac_stat_rx_inrangeerr_o,                   // length/type in-range error
+    output wire                        cmac_stat_rx_jabber_o,                       // jabber detected
+    output wire                        cmac_stat_rx_oversize_o,                     // oversize frame (>MAX)
+    output wire                        cmac_stat_rx_toolong_o,                      // length > 9600
+    output wire                        cmac_stat_rx_truncated_o,                    // frame truncated
+    output wire [2:0]                  cmac_stat_rx_undersize_o,                    // undersize count
+    output wire [2:0]                  cmac_stat_rx_packet_small_o,                 // packet < 64B count
+    output wire                        cmac_stat_rx_packet_large_o,                 // packet > 9215B
+    output wire [2:0]                  cmac_stat_rx_test_pattern_mismatch_o,        // test pattern mismatch count
+    // RX size-bucket counters
+    output wire                        cmac_stat_rx_packet_64_bytes_o,              // 64-byte packet
+    output wire                        cmac_stat_rx_packet_65_127_bytes_o,          // 65..127B packet
+    output wire                        cmac_stat_rx_packet_128_255_bytes_o,         // 128..255B packet
+    output wire                        cmac_stat_rx_packet_256_511_bytes_o,         // 256..511B packet
+    output wire                        cmac_stat_rx_packet_512_1023_bytes_o,        // 512..1023B packet
+    output wire                        cmac_stat_rx_packet_1024_1518_bytes_o,       // 1024..1518B packet
+    output wire                        cmac_stat_rx_packet_1519_1522_bytes_o,       // 1519..1522B packet
+    output wire                        cmac_stat_rx_packet_1523_1548_bytes_o,       // 1523..1548B packet
+    output wire                        cmac_stat_rx_packet_1549_2047_bytes_o,       // 1549..2047B packet
+    output wire                        cmac_stat_rx_packet_2048_4095_bytes_o,       // 2048..4095B packet
+    output wire                        cmac_stat_rx_packet_4096_8191_bytes_o,       // 4096..8191B packet
+    output wire                        cmac_stat_rx_packet_8192_9215_bytes_o,       // 8192..9215B packet
+
+`ifndef CMAC_RS_FEC_EXCLUDE
+    // RS-FEC RX status
+    output wire [3:0]                  cmac_stat_rx_rsfec_am_lock_o,                // RS-FEC alignment marker lock per FEC lane
+    output wire [11:0]                 cmac_stat_rx_rsfec_err_count_inc_o,          // RS-FEC symbol error incr per FEC lane (3b x 4)
+    output wire                        cmac_stat_rx_rsfec_hi_ser_o,                 // RS-FEC high symbol error rate
+    output wire                        cmac_stat_rx_rsfec_lane_alignment_status_o,  // RS-FEC lane alignment status
+    output wire [55:0]                 cmac_stat_rx_rsfec_lane_fill_o,              // RS-FEC lane skew fill (14b x 4)
+    output wire [7:0]                  cmac_stat_rx_rsfec_lane_mapping_o,           // RS-FEC PCS-to-FEC lane map (2b x 4)
+    output wire                        cmac_stat_rx_rsfec_cw_inc_o,                 // RS-FEC codeword counter incr
+    output wire                        cmac_stat_rx_rsfec_corrected_cw_inc_o,       // RS-FEC corrected-codeword incr
+    output wire                        cmac_stat_rx_rsfec_uncorrected_cw_inc_o,     // RS-FEC uncorrected-codeword incr
+`endif
+
+    /* [TR] ILA - TX */
+    // TX fault / errors
+    output wire                        cmac_stat_tx_local_fault_o,                  // TX local fault
+    output wire                        cmac_stat_tx_frame_error_o,                  // TX frame error from user
+    output wire                        cmac_stat_tx_bad_fcs_o,                      // TX bad FCS frame
+    output wire                        cmac_stat_tx_ptp_fifo_read_error_o,          // PTP FIFO read error (underflow)
+    output wire                        cmac_stat_tx_ptp_fifo_write_error_o,         // PTP FIFO write error (overflow)
+    // TX counters & classifiers
+    output wire                        cmac_stat_tx_total_good_packets_o,           // good packet transmitted
+    output wire                        cmac_stat_tx_total_packets_o,                // packet transmitted
+    output wire [5:0]                  cmac_stat_tx_total_bytes_o,                  // total bytes this cycle
+    output wire [13:0]                 cmac_stat_tx_total_good_bytes_o,             // good bytes this cycle
+    output wire                        cmac_stat_tx_unicast_o,                      // unicast frame transmitted
+    output wire                        cmac_stat_tx_multicast_o,                    // multicast frame transmitted
+    output wire                        cmac_stat_tx_broadcast_o,                    // broadcast frame transmitted
+    output wire                        cmac_stat_tx_vlan_o,                         // VLAN-tagged frame
+    output wire                        cmac_stat_tx_packet_small_o,                 // packet < 64B
+    output wire                        cmac_stat_tx_packet_large_o,                 // packet > 9215B
+    // TX size-bucket counters
+    output wire                        cmac_stat_tx_packet_64_bytes_o,              // 64B packet
+    output wire                        cmac_stat_tx_packet_65_127_bytes_o,          // 65..127B packet
+    output wire                        cmac_stat_tx_packet_128_255_bytes_o,         // 128..255B packet
+    output wire                        cmac_stat_tx_packet_256_511_bytes_o,         // 256..511B packet
+    output wire                        cmac_stat_tx_packet_512_1023_bytes_o,        // 512..1023B packet
+    output wire                        cmac_stat_tx_packet_1024_1518_bytes_o,       // 1024..1518B packet
+    output wire                        cmac_stat_tx_packet_1519_1522_bytes_o,       // 1519..1522B packet
+    output wire                        cmac_stat_tx_packet_1523_1548_bytes_o,       // 1523..1548B packet
+    output wire                        cmac_stat_tx_packet_1549_2047_bytes_o,       // 1549..2047B packet
+    output wire                        cmac_stat_tx_packet_2048_4095_bytes_o,       // 2048..4095B packet
+    output wire                        cmac_stat_tx_packet_4096_8191_bytes_o,       // 4096..8191B packet
+    output wire                        cmac_stat_tx_packet_8192_9215_bytes_o        // 8192..9215B packet
 );
 
 reg [23:0] drp_addr_reg = 24'd0;
@@ -184,6 +295,112 @@ reg drp_rdy_ctrl_reg = 1'b0;
 
 assign drp_do = drp_do_reg;
 assign drp_rdy = drp_rdy_reg;
+
+/* [TR] ILA - drive PG203 Status outputs */
+// RX link / fault
+assign cmac_stat_rx_status_o                       = cmac_stat_rx_status;
+assign cmac_stat_rx_aligned_o                      = cmac_stat_rx_aligned;
+assign cmac_stat_rx_aligned_err_o                  = cmac_stat_rx_aligned_err;
+assign cmac_stat_rx_misaligned_o                   = cmac_stat_rx_misaligned;
+assign cmac_stat_rx_hi_ber_o                       = cmac_stat_rx_hi_ber;
+assign cmac_stat_rx_local_fault_o                  = cmac_stat_rx_local_fault;
+assign cmac_stat_rx_internal_local_fault_o         = cmac_stat_rx_internal_local_fault;
+assign cmac_stat_rx_received_local_fault_o         = cmac_stat_rx_received_local_fault;
+assign cmac_stat_rx_remote_fault_o                 = cmac_stat_rx_remote_fault;
+// RX per-PCS-lane
+assign cmac_stat_rx_block_lock_o                   = cmac_stat_rx_block_lock;
+assign cmac_stat_rx_synced_o                       = cmac_stat_rx_synced;
+assign cmac_stat_rx_synced_err_o                   = cmac_stat_rx_synced_err;
+assign cmac_stat_rx_mf_err_o                       = cmac_stat_rx_mf_err;
+assign cmac_stat_rx_mf_len_err_o                   = cmac_stat_rx_mf_len_err;
+assign cmac_stat_rx_mf_repeat_err_o                = cmac_stat_rx_mf_repeat_err;
+assign cmac_stat_rx_framing_err_valid_o            = cmac_stat_rx_framing_err_valid;
+assign cmac_stat_rx_framing_err_o                  = cmac_stat_rx_framing_err;
+assign cmac_stat_rx_bip_err_o                      = cmac_stat_rx_bip_err;
+assign cmac_stat_rx_pcsl_demuxed_o                 = cmac_stat_rx_pcsl_demuxed;
+assign cmac_stat_rx_pcsl_number_o                  = cmac_stat_rx_pcsl_number;
+assign cmac_rx_lane_aligner_fill_o                 = cmac_rx_lane_aligner_fill;
+// RX counters / classifiers
+assign cmac_stat_rx_total_good_packets_o           = cmac_stat_rx_total_good_packets;
+assign cmac_stat_rx_total_packets_o                = cmac_stat_rx_total_packets;
+assign cmac_stat_rx_total_bytes_o                  = cmac_stat_rx_total_bytes;
+assign cmac_stat_rx_total_good_bytes_o             = cmac_stat_rx_total_good_bytes;
+assign cmac_stat_rx_unicast_o                      = cmac_stat_rx_unicast;
+assign cmac_stat_rx_multicast_o                    = cmac_stat_rx_multicast;
+assign cmac_stat_rx_broadcast_o                    = cmac_stat_rx_broadcast;
+assign cmac_stat_rx_vlan_o                         = cmac_stat_rx_vlan;
+assign cmac_stat_rx_bad_fcs_o                      = cmac_stat_rx_bad_fcs;
+assign cmac_stat_rx_packet_bad_fcs_o               = cmac_stat_rx_packet_bad_fcs;
+assign cmac_stat_rx_stomped_fcs_o                  = cmac_stat_rx_stomped_fcs;
+assign cmac_stat_rx_bad_code_o                     = cmac_stat_rx_bad_code;
+assign cmac_stat_rx_bad_preamble_o                 = cmac_stat_rx_bad_preamble;
+assign cmac_stat_rx_bad_sfd_o                      = cmac_stat_rx_bad_sfd;
+assign cmac_stat_rx_got_signal_os_o                = cmac_stat_rx_got_signal_os;
+assign cmac_stat_rx_fragment_o                     = cmac_stat_rx_fragment;
+assign cmac_stat_rx_inrangeerr_o                   = cmac_stat_rx_inrangeerr;
+assign cmac_stat_rx_jabber_o                       = cmac_stat_rx_jabber;
+assign cmac_stat_rx_oversize_o                     = cmac_stat_rx_oversize;
+assign cmac_stat_rx_toolong_o                      = cmac_stat_rx_toolong;
+assign cmac_stat_rx_truncated_o                    = cmac_stat_rx_truncated;
+assign cmac_stat_rx_undersize_o                    = cmac_stat_rx_undersize;
+assign cmac_stat_rx_packet_small_o                 = cmac_stat_rx_packet_small;
+assign cmac_stat_rx_packet_large_o                 = cmac_stat_rx_packet_large;
+assign cmac_stat_rx_test_pattern_mismatch_o        = cmac_stat_rx_test_pattern_mismatch;
+// RX size buckets
+assign cmac_stat_rx_packet_64_bytes_o              = cmac_stat_rx_packet_64_bytes;
+assign cmac_stat_rx_packet_65_127_bytes_o          = cmac_stat_rx_packet_65_127_bytes;
+assign cmac_stat_rx_packet_128_255_bytes_o         = cmac_stat_rx_packet_128_255_bytes;
+assign cmac_stat_rx_packet_256_511_bytes_o         = cmac_stat_rx_packet_256_511_bytes;
+assign cmac_stat_rx_packet_512_1023_bytes_o        = cmac_stat_rx_packet_512_1023_bytes;
+assign cmac_stat_rx_packet_1024_1518_bytes_o       = cmac_stat_rx_packet_1024_1518_bytes;
+assign cmac_stat_rx_packet_1519_1522_bytes_o       = cmac_stat_rx_packet_1519_1522_bytes;
+assign cmac_stat_rx_packet_1523_1548_bytes_o       = cmac_stat_rx_packet_1523_1548_bytes;
+assign cmac_stat_rx_packet_1549_2047_bytes_o       = cmac_stat_rx_packet_1549_2047_bytes;
+assign cmac_stat_rx_packet_2048_4095_bytes_o       = cmac_stat_rx_packet_2048_4095_bytes;
+assign cmac_stat_rx_packet_4096_8191_bytes_o       = cmac_stat_rx_packet_4096_8191_bytes;
+assign cmac_stat_rx_packet_8192_9215_bytes_o       = cmac_stat_rx_packet_8192_9215_bytes;
+`ifndef CMAC_RS_FEC_EXCLUDE
+// RS-FEC RX
+assign cmac_stat_rx_rsfec_am_lock_o                = cmac_stat_rx_rsfec_am_lock;
+assign cmac_stat_rx_rsfec_err_count_inc_o          = cmac_stat_rx_rsfec_err_count_inc;
+assign cmac_stat_rx_rsfec_hi_ser_o                 = cmac_stat_rx_rsfec_hi_ser;
+assign cmac_stat_rx_rsfec_lane_alignment_status_o  = cmac_stat_rx_rsfec_lane_alignment_status;
+assign cmac_stat_rx_rsfec_lane_fill_o              = cmac_stat_rx_rsfec_lane_fill;
+assign cmac_stat_rx_rsfec_lane_mapping_o           = cmac_stat_rx_rsfec_lane_mapping;
+assign cmac_stat_rx_rsfec_cw_inc_o                 = cmac_stat_rx_rsfec_cw_inc;
+assign cmac_stat_rx_rsfec_corrected_cw_inc_o       = cmac_stat_rx_rsfec_corrected_cw_inc;
+assign cmac_stat_rx_rsfec_uncorrected_cw_inc_o     = cmac_stat_rx_rsfec_uncorrected_cw_inc;
+`endif
+// TX fault / errors
+assign cmac_stat_tx_local_fault_o                  = cmac_stat_tx_local_fault;
+assign cmac_stat_tx_frame_error_o                  = cmac_stat_tx_frame_error;
+assign cmac_stat_tx_bad_fcs_o                      = cmac_stat_tx_bad_fcs;
+assign cmac_stat_tx_ptp_fifo_read_error_o          = cmac_stat_tx_ptp_fifo_read_error;
+assign cmac_stat_tx_ptp_fifo_write_error_o         = cmac_stat_tx_ptp_fifo_write_error;
+// TX counters
+assign cmac_stat_tx_total_good_packets_o           = cmac_stat_tx_total_good_packets;
+assign cmac_stat_tx_total_packets_o                = cmac_stat_tx_total_packets;
+assign cmac_stat_tx_total_bytes_o                  = cmac_stat_tx_total_bytes;
+assign cmac_stat_tx_total_good_bytes_o             = cmac_stat_tx_total_good_bytes;
+assign cmac_stat_tx_unicast_o                      = cmac_stat_tx_unicast;
+assign cmac_stat_tx_multicast_o                    = cmac_stat_tx_multicast;
+assign cmac_stat_tx_broadcast_o                    = cmac_stat_tx_broadcast;
+assign cmac_stat_tx_vlan_o                         = cmac_stat_tx_vlan;
+assign cmac_stat_tx_packet_small_o                 = cmac_stat_tx_packet_small;
+assign cmac_stat_tx_packet_large_o                 = cmac_stat_tx_packet_large;
+// TX size buckets
+assign cmac_stat_tx_packet_64_bytes_o              = cmac_stat_tx_packet_64_bytes;
+assign cmac_stat_tx_packet_65_127_bytes_o          = cmac_stat_tx_packet_65_127_bytes;
+assign cmac_stat_tx_packet_128_255_bytes_o         = cmac_stat_tx_packet_128_255_bytes;
+assign cmac_stat_tx_packet_256_511_bytes_o         = cmac_stat_tx_packet_256_511_bytes;
+assign cmac_stat_tx_packet_512_1023_bytes_o        = cmac_stat_tx_packet_512_1023_bytes;
+assign cmac_stat_tx_packet_1024_1518_bytes_o       = cmac_stat_tx_packet_1024_1518_bytes;
+assign cmac_stat_tx_packet_1519_1522_bytes_o       = cmac_stat_tx_packet_1519_1522_bytes;
+assign cmac_stat_tx_packet_1523_1548_bytes_o       = cmac_stat_tx_packet_1523_1548_bytes;
+assign cmac_stat_tx_packet_1549_2047_bytes_o       = cmac_stat_tx_packet_1549_2047_bytes;
+assign cmac_stat_tx_packet_2048_4095_bytes_o       = cmac_stat_tx_packet_2048_4095_bytes;
+assign cmac_stat_tx_packet_4096_8191_bytes_o       = cmac_stat_tx_packet_4096_8191_bytes;
+assign cmac_stat_tx_packet_8192_9215_bytes_o       = cmac_stat_tx_packet_8192_9215_bytes;
 
 always @(posedge drp_clk) begin
     drp_en_gty_reg_1 <= 1'b0;

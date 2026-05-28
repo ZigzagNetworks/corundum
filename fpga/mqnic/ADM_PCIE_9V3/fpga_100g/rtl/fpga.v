@@ -759,6 +759,178 @@ pcie_user_reset_bufg_inst (
 //     .probe5(axis_rc_tlast)
 // );
 
+/* [TR] ILA for OCS optical-cut timing instrumentation
+ *
+ * Clock: qsfp_0_rx_clk_int (CMAC RX user clock, 322.265625 MHz at 100G).
+ *
+ * Event-driven capture for cycle-exact timing across long windows:
+ *  - ila_timestamp_reg: 32b free-running counter on rx_clk. Captured as
+ *    probe38 — each stored sample is timestamped.
+ *  - ila_change_detected: pulses 1 cycle whenever any STATE signal in
+ *    ila_change_monitor differs from its previous value. Used as the
+ *    ILA storage qualifier so a sample is stored ONLY on transitions.
+ *    All probes are captured at that cycle, giving full state-snapshot.
+ *  - High-churn signals (byte/packet counters, size buckets, framing_err)
+ *    are intentionally excluded from change detection so normal traffic
+ *    doesn't burn ILA depth. They are still captured as regular probes.
+ *
+ * HW Manager setup: set basic_or_advanced = ADVANCED, storage qualifier =
+ * probe37 (ila_change_detected, high). Trigger position ~25% pre-trigger.
+ */
+reg [31:0] ila_timestamp_reg = 32'd0;
+always @(posedge qsfp_0_rx_clk_int) begin
+    ila_timestamp_reg <= ila_timestamp_reg + 32'd1;
+end
+
+wire [152:0] ila_change_monitor = {
+    qsfp_0_cmac_stat_rx_status,                                  //   1
+    qsfp_0_cmac_stat_rx_aligned,                                 //   2
+    qsfp_0_cmac_stat_rx_aligned_err,                             //   3
+    qsfp_0_cmac_stat_rx_misaligned,                              //   4
+    qsfp_0_cmac_stat_rx_local_fault,                             //   5
+    qsfp_0_cmac_stat_rx_internal_local_fault,                    //   6
+    qsfp_0_cmac_stat_rx_received_local_fault,                    //   7
+    qsfp_0_cmac_stat_rx_remote_fault,                            //   8
+    qsfp_0_cmac_stat_rx_hi_ber,                                  //   9
+    qsfp_0_cmac_stat_rx_block_lock,                              //  29
+    qsfp_0_cmac_stat_rx_synced,                                  //  49
+    qsfp_0_cmac_stat_rx_synced_err,                              //  69
+    qsfp_0_cmac_stat_rx_mf_err,                                  //  89
+    qsfp_0_cmac_stat_rx_mf_len_err,                              // 109
+    qsfp_0_cmac_stat_rx_mf_repeat_err,                           // 129
+    qsfp_0_cmac_stat_rx_pcsl_demuxed,                            // 149
+    qsfp_0_cmac_stat_tx_local_fault,                             // 150
+    qsfp_0_cmac_stat_tx_frame_error,                             // 151
+    qsfp_0_cmac_stat_tx_ptp_fifo_read_error,                     // 152
+    qsfp_0_cmac_stat_tx_ptp_fifo_write_error                     // 153
+};
+
+reg [152:0] ila_change_monitor_d_reg = 153'd0;
+always @(posedge qsfp_0_rx_clk_int) begin
+    ila_change_monitor_d_reg <= ila_change_monitor;
+end
+wire ila_change_detected = (ila_change_monitor != ila_change_monitor_d_reg);
+
+ila_0 ila_fault (
+    .clk(qsfp_0_rx_clk_int),
+
+    // === RX status / fault — primary OCS trigger candidates ===
+    .probe0 (qsfp_0_cmac_stat_rx_status),                  // 1b
+    .probe1 (qsfp_0_cmac_stat_rx_aligned),                 // 1b
+    .probe2 (qsfp_0_cmac_stat_rx_aligned_err),             // 1b
+    .probe3 (qsfp_0_cmac_stat_rx_misaligned),              // 1b
+    .probe4 (qsfp_0_cmac_stat_rx_local_fault),             // 1b
+    .probe5 (qsfp_0_cmac_stat_rx_internal_local_fault),    // 1b
+    .probe6 (qsfp_0_cmac_stat_rx_received_local_fault),    // 1b
+    .probe7 (qsfp_0_cmac_stat_rx_remote_fault),            // 1b
+    .probe8 (qsfp_0_cmac_stat_rx_hi_ber),                  // 1b
+    // === Per-PCS-lane vectors — earliest to change on optical loss ===
+    .probe9 (qsfp_0_cmac_stat_rx_block_lock),              // 20b
+    .probe10(qsfp_0_cmac_stat_rx_synced),                  // 20b
+    .probe11(qsfp_0_cmac_stat_rx_synced_err),              // 20b
+    .probe12(qsfp_0_cmac_stat_rx_mf_err),                  // 20b
+    .probe13(qsfp_0_cmac_stat_rx_mf_len_err),              // 20b
+    .probe14(qsfp_0_cmac_stat_rx_mf_repeat_err),           // 20b
+    .probe15(qsfp_0_cmac_stat_rx_framing_err),             // 40b
+    .probe16(qsfp_0_cmac_stat_rx_framing_err_valid),       // 20b
+    .probe17(qsfp_0_cmac_stat_rx_bip_err),                 // 20b
+    .probe18(qsfp_0_cmac_stat_rx_pcsl_demuxed),            // 20b
+    .probe19(qsfp_0_cmac_stat_rx_pcsl_number),             // 100b
+    .probe20(qsfp_0_cmac_rx_lane_aligner_fill),            // 140b
+    // === RX per-cycle error counters (3b each) ===
+    .probe21({qsfp_0_cmac_stat_rx_test_pattern_mismatch,
+              qsfp_0_cmac_stat_rx_fragment,
+              qsfp_0_cmac_stat_rx_stomped_fcs,
+              qsfp_0_cmac_stat_rx_bad_code,
+              qsfp_0_cmac_stat_rx_bad_fcs}),               // 15b
+    // === RX undersize/small (3b each) ===
+    .probe22({qsfp_0_cmac_stat_rx_packet_small,
+              qsfp_0_cmac_stat_rx_undersize}),             // 6b
+    // === RX 1-bit error flags ===
+    .probe23({qsfp_0_cmac_stat_rx_packet_large,
+              qsfp_0_cmac_stat_rx_truncated,
+              qsfp_0_cmac_stat_rx_toolong,
+              qsfp_0_cmac_stat_rx_oversize,
+              qsfp_0_cmac_stat_rx_jabber,
+              qsfp_0_cmac_stat_rx_inrangeerr,
+              qsfp_0_cmac_stat_rx_got_signal_os,
+              qsfp_0_cmac_stat_rx_bad_sfd,
+              qsfp_0_cmac_stat_rx_bad_preamble,
+              qsfp_0_cmac_stat_rx_packet_bad_fcs}),        // 10b
+    // === RX classifiers ===
+    .probe24({qsfp_0_cmac_stat_rx_vlan,
+              qsfp_0_cmac_stat_rx_broadcast,
+              qsfp_0_cmac_stat_rx_multicast,
+              qsfp_0_cmac_stat_rx_unicast,
+              qsfp_0_cmac_stat_rx_total_good_packets}),    // 5b
+    .probe25(qsfp_0_cmac_stat_rx_total_packets),           // 3b
+    .probe26(qsfp_0_cmac_stat_rx_total_bytes),             // 7b
+    .probe27(qsfp_0_cmac_stat_rx_total_good_bytes),        // 14b
+    // === RX size buckets ===
+    .probe28({qsfp_0_cmac_stat_rx_packet_8192_9215_bytes,
+              qsfp_0_cmac_stat_rx_packet_4096_8191_bytes,
+              qsfp_0_cmac_stat_rx_packet_2048_4095_bytes,
+              qsfp_0_cmac_stat_rx_packet_1549_2047_bytes,
+              qsfp_0_cmac_stat_rx_packet_1523_1548_bytes,
+              qsfp_0_cmac_stat_rx_packet_1519_1522_bytes,
+              qsfp_0_cmac_stat_rx_packet_1024_1518_bytes,
+              qsfp_0_cmac_stat_rx_packet_512_1023_bytes,
+              qsfp_0_cmac_stat_rx_packet_256_511_bytes,
+              qsfp_0_cmac_stat_rx_packet_128_255_bytes,
+              qsfp_0_cmac_stat_rx_packet_65_127_bytes,
+              qsfp_0_cmac_stat_rx_packet_64_bytes}),       // 12b
+`ifndef CMAC_RS_FEC_EXCLUDE
+    // === RS-FEC RX ===
+    .probe29({qsfp_0_cmac_stat_rx_rsfec_lane_mapping,
+              qsfp_0_cmac_stat_rx_rsfec_uncorrected_cw_inc,
+              qsfp_0_cmac_stat_rx_rsfec_corrected_cw_inc,
+              qsfp_0_cmac_stat_rx_rsfec_cw_inc,
+              qsfp_0_cmac_stat_rx_rsfec_lane_alignment_status,
+              qsfp_0_cmac_stat_rx_rsfec_hi_ser,
+              qsfp_0_cmac_stat_rx_rsfec_am_lock}),         // 17b
+    .probe30(qsfp_0_cmac_stat_rx_rsfec_err_count_inc),     // 12b
+    .probe31(qsfp_0_cmac_stat_rx_rsfec_lane_fill),         // 56b
+`else
+    .probe29(17'd0),
+    .probe30(12'd0),
+    .probe31(56'd0),
+`endif
+    // === TX status / fault ===
+    .probe32({qsfp_0_cmac_stat_tx_ptp_fifo_write_error,
+              qsfp_0_cmac_stat_tx_ptp_fifo_read_error,
+              qsfp_0_cmac_stat_tx_bad_fcs,
+              qsfp_0_cmac_stat_tx_frame_error,
+              qsfp_0_cmac_stat_tx_local_fault}),           // 5b
+    // === TX classifiers ===
+    .probe33({qsfp_0_cmac_stat_tx_packet_large,
+              qsfp_0_cmac_stat_tx_packet_small,
+              qsfp_0_cmac_stat_tx_vlan,
+              qsfp_0_cmac_stat_tx_broadcast,
+              qsfp_0_cmac_stat_tx_multicast,
+              qsfp_0_cmac_stat_tx_unicast,
+              qsfp_0_cmac_stat_tx_total_packets,
+              qsfp_0_cmac_stat_tx_total_good_packets}),    // 8b
+    .probe34(qsfp_0_cmac_stat_tx_total_bytes),             // 6b
+    .probe35(qsfp_0_cmac_stat_tx_total_good_bytes),        // 14b
+    // === TX size buckets ===
+    .probe36({qsfp_0_cmac_stat_tx_packet_8192_9215_bytes,
+              qsfp_0_cmac_stat_tx_packet_4096_8191_bytes,
+              qsfp_0_cmac_stat_tx_packet_2048_4095_bytes,
+              qsfp_0_cmac_stat_tx_packet_1549_2047_bytes,
+              qsfp_0_cmac_stat_tx_packet_1523_1548_bytes,
+              qsfp_0_cmac_stat_tx_packet_1519_1522_bytes,
+              qsfp_0_cmac_stat_tx_packet_1024_1518_bytes,
+              qsfp_0_cmac_stat_tx_packet_512_1023_bytes,
+              qsfp_0_cmac_stat_tx_packet_256_511_bytes,
+              qsfp_0_cmac_stat_tx_packet_128_255_bytes,
+              qsfp_0_cmac_stat_tx_packet_65_127_bytes,
+              qsfp_0_cmac_stat_tx_packet_64_bytes}),       // 12b
+    // === Storage qualifier — set this as the qualifier in HW Manager ===
+    .probe37(ila_change_detected),                         // 1b — pulses on any state change
+    // === Cycle-counter timestamp ===
+    .probe38(ila_timestamp_reg)                            // 32b — rx_clk cycles since reset
+);
+
 pcie4_uscale_plus_0
 pcie4_uscale_plus_inst (
     .pci_exp_txn(pcie_tx_n),
@@ -969,6 +1141,104 @@ wire [7:0] qsfp_0_rx_pfc_en;
 wire [7:0] qsfp_0_rx_pfc_req;
 wire [7:0] qsfp_0_rx_pfc_ack;
 
+/* [TR] ILA wires from CMAC wrapper (qsfp_0) — all in qsfp_0_rx_clk_int domain */
+wire        qsfp_0_cmac_stat_rx_status;
+wire        qsfp_0_cmac_stat_rx_aligned;
+wire        qsfp_0_cmac_stat_rx_aligned_err;
+wire        qsfp_0_cmac_stat_rx_misaligned;
+wire        qsfp_0_cmac_stat_rx_local_fault;
+wire        qsfp_0_cmac_stat_rx_internal_local_fault;
+wire        qsfp_0_cmac_stat_rx_received_local_fault;
+wire        qsfp_0_cmac_stat_rx_remote_fault;
+wire        qsfp_0_cmac_stat_rx_hi_ber;
+wire [19:0] qsfp_0_cmac_stat_rx_block_lock;
+wire [19:0] qsfp_0_cmac_stat_rx_synced;
+wire [19:0] qsfp_0_cmac_stat_rx_synced_err;
+wire [19:0] qsfp_0_cmac_stat_rx_mf_err;
+wire [19:0] qsfp_0_cmac_stat_rx_mf_len_err;
+wire [19:0] qsfp_0_cmac_stat_rx_mf_repeat_err;
+wire [39:0] qsfp_0_cmac_stat_rx_framing_err;
+wire [19:0] qsfp_0_cmac_stat_rx_framing_err_valid;
+wire [19:0] qsfp_0_cmac_stat_rx_bip_err;
+wire [19:0] qsfp_0_cmac_stat_rx_pcsl_demuxed;
+wire [99:0] qsfp_0_cmac_stat_rx_pcsl_number;
+wire [139:0] qsfp_0_cmac_rx_lane_aligner_fill;
+wire [2:0]  qsfp_0_cmac_stat_rx_bad_fcs;
+wire [2:0]  qsfp_0_cmac_stat_rx_bad_code;
+wire        qsfp_0_cmac_stat_rx_packet_bad_fcs;
+wire [2:0]  qsfp_0_cmac_stat_rx_stomped_fcs;
+wire        qsfp_0_cmac_stat_rx_bad_preamble;
+wire        qsfp_0_cmac_stat_rx_bad_sfd;
+wire        qsfp_0_cmac_stat_rx_got_signal_os;
+wire [2:0]  qsfp_0_cmac_stat_rx_fragment;
+wire        qsfp_0_cmac_stat_rx_inrangeerr;
+wire        qsfp_0_cmac_stat_rx_jabber;
+wire        qsfp_0_cmac_stat_rx_oversize;
+wire        qsfp_0_cmac_stat_rx_toolong;
+wire        qsfp_0_cmac_stat_rx_truncated;
+wire [2:0]  qsfp_0_cmac_stat_rx_undersize;
+wire [2:0]  qsfp_0_cmac_stat_rx_packet_small;
+wire        qsfp_0_cmac_stat_rx_packet_large;
+wire [2:0]  qsfp_0_cmac_stat_rx_test_pattern_mismatch;
+wire        qsfp_0_cmac_stat_rx_total_good_packets;
+wire [2:0]  qsfp_0_cmac_stat_rx_total_packets;
+wire [6:0]  qsfp_0_cmac_stat_rx_total_bytes;
+wire [13:0] qsfp_0_cmac_stat_rx_total_good_bytes;
+wire        qsfp_0_cmac_stat_rx_unicast;
+wire        qsfp_0_cmac_stat_rx_multicast;
+wire        qsfp_0_cmac_stat_rx_broadcast;
+wire        qsfp_0_cmac_stat_rx_vlan;
+wire        qsfp_0_cmac_stat_rx_packet_64_bytes;
+wire        qsfp_0_cmac_stat_rx_packet_65_127_bytes;
+wire        qsfp_0_cmac_stat_rx_packet_128_255_bytes;
+wire        qsfp_0_cmac_stat_rx_packet_256_511_bytes;
+wire        qsfp_0_cmac_stat_rx_packet_512_1023_bytes;
+wire        qsfp_0_cmac_stat_rx_packet_1024_1518_bytes;
+wire        qsfp_0_cmac_stat_rx_packet_1519_1522_bytes;
+wire        qsfp_0_cmac_stat_rx_packet_1523_1548_bytes;
+wire        qsfp_0_cmac_stat_rx_packet_1549_2047_bytes;
+wire        qsfp_0_cmac_stat_rx_packet_2048_4095_bytes;
+wire        qsfp_0_cmac_stat_rx_packet_4096_8191_bytes;
+wire        qsfp_0_cmac_stat_rx_packet_8192_9215_bytes;
+`ifndef CMAC_RS_FEC_EXCLUDE
+wire [3:0]  qsfp_0_cmac_stat_rx_rsfec_am_lock;
+wire [11:0] qsfp_0_cmac_stat_rx_rsfec_err_count_inc;
+wire        qsfp_0_cmac_stat_rx_rsfec_hi_ser;
+wire        qsfp_0_cmac_stat_rx_rsfec_lane_alignment_status;
+wire [55:0] qsfp_0_cmac_stat_rx_rsfec_lane_fill;
+wire [7:0]  qsfp_0_cmac_stat_rx_rsfec_lane_mapping;
+wire        qsfp_0_cmac_stat_rx_rsfec_cw_inc;
+wire        qsfp_0_cmac_stat_rx_rsfec_corrected_cw_inc;
+wire        qsfp_0_cmac_stat_rx_rsfec_uncorrected_cw_inc;
+`endif
+wire        qsfp_0_cmac_stat_tx_local_fault;
+wire        qsfp_0_cmac_stat_tx_frame_error;
+wire        qsfp_0_cmac_stat_tx_bad_fcs;
+wire        qsfp_0_cmac_stat_tx_ptp_fifo_read_error;
+wire        qsfp_0_cmac_stat_tx_ptp_fifo_write_error;
+wire        qsfp_0_cmac_stat_tx_total_good_packets;
+wire        qsfp_0_cmac_stat_tx_total_packets;
+wire [5:0]  qsfp_0_cmac_stat_tx_total_bytes;
+wire [13:0] qsfp_0_cmac_stat_tx_total_good_bytes;
+wire        qsfp_0_cmac_stat_tx_unicast;
+wire        qsfp_0_cmac_stat_tx_multicast;
+wire        qsfp_0_cmac_stat_tx_broadcast;
+wire        qsfp_0_cmac_stat_tx_vlan;
+wire        qsfp_0_cmac_stat_tx_packet_small;
+wire        qsfp_0_cmac_stat_tx_packet_large;
+wire        qsfp_0_cmac_stat_tx_packet_64_bytes;
+wire        qsfp_0_cmac_stat_tx_packet_65_127_bytes;
+wire        qsfp_0_cmac_stat_tx_packet_128_255_bytes;
+wire        qsfp_0_cmac_stat_tx_packet_256_511_bytes;
+wire        qsfp_0_cmac_stat_tx_packet_512_1023_bytes;
+wire        qsfp_0_cmac_stat_tx_packet_1024_1518_bytes;
+wire        qsfp_0_cmac_stat_tx_packet_1519_1522_bytes;
+wire        qsfp_0_cmac_stat_tx_packet_1523_1548_bytes;
+wire        qsfp_0_cmac_stat_tx_packet_1549_2047_bytes;
+wire        qsfp_0_cmac_stat_tx_packet_2048_4095_bytes;
+wire        qsfp_0_cmac_stat_tx_packet_4096_8191_bytes;
+wire        qsfp_0_cmac_stat_tx_packet_8192_9215_bytes;
+
 wire qsfp_0_gtpowergood;
 
 wire qsfp_0_mgt_refclk;
@@ -1084,7 +1354,105 @@ qsfp_0_cmac_inst (
     .rx_lfc_ack(qsfp_0_rx_lfc_ack),
     .rx_pfc_en(qsfp_0_rx_pfc_en),
     .rx_pfc_req(qsfp_0_rx_pfc_req),
-    .rx_pfc_ack(qsfp_0_rx_pfc_ack)
+    .rx_pfc_ack(qsfp_0_rx_pfc_ack),
+
+    /* [TR] ILA - PG203 Status Interface signals */
+    .cmac_stat_rx_status_o(qsfp_0_cmac_stat_rx_status),
+    .cmac_stat_rx_aligned_o(qsfp_0_cmac_stat_rx_aligned),
+    .cmac_stat_rx_aligned_err_o(qsfp_0_cmac_stat_rx_aligned_err),
+    .cmac_stat_rx_misaligned_o(qsfp_0_cmac_stat_rx_misaligned),
+    .cmac_stat_rx_local_fault_o(qsfp_0_cmac_stat_rx_local_fault),
+    .cmac_stat_rx_internal_local_fault_o(qsfp_0_cmac_stat_rx_internal_local_fault),
+    .cmac_stat_rx_received_local_fault_o(qsfp_0_cmac_stat_rx_received_local_fault),
+    .cmac_stat_rx_remote_fault_o(qsfp_0_cmac_stat_rx_remote_fault),
+    .cmac_stat_rx_hi_ber_o(qsfp_0_cmac_stat_rx_hi_ber),
+    .cmac_stat_rx_block_lock_o(qsfp_0_cmac_stat_rx_block_lock),
+    .cmac_stat_rx_synced_o(qsfp_0_cmac_stat_rx_synced),
+    .cmac_stat_rx_synced_err_o(qsfp_0_cmac_stat_rx_synced_err),
+    .cmac_stat_rx_mf_err_o(qsfp_0_cmac_stat_rx_mf_err),
+    .cmac_stat_rx_mf_len_err_o(qsfp_0_cmac_stat_rx_mf_len_err),
+    .cmac_stat_rx_mf_repeat_err_o(qsfp_0_cmac_stat_rx_mf_repeat_err),
+    .cmac_stat_rx_framing_err_o(qsfp_0_cmac_stat_rx_framing_err),
+    .cmac_stat_rx_framing_err_valid_o(qsfp_0_cmac_stat_rx_framing_err_valid),
+    .cmac_stat_rx_bip_err_o(qsfp_0_cmac_stat_rx_bip_err),
+    .cmac_stat_rx_pcsl_demuxed_o(qsfp_0_cmac_stat_rx_pcsl_demuxed),
+    .cmac_stat_rx_pcsl_number_o(qsfp_0_cmac_stat_rx_pcsl_number),
+    .cmac_rx_lane_aligner_fill_o(qsfp_0_cmac_rx_lane_aligner_fill),
+    .cmac_stat_rx_bad_fcs_o(qsfp_0_cmac_stat_rx_bad_fcs),
+    .cmac_stat_rx_bad_code_o(qsfp_0_cmac_stat_rx_bad_code),
+    .cmac_stat_rx_packet_bad_fcs_o(qsfp_0_cmac_stat_rx_packet_bad_fcs),
+    .cmac_stat_rx_stomped_fcs_o(qsfp_0_cmac_stat_rx_stomped_fcs),
+    .cmac_stat_rx_bad_preamble_o(qsfp_0_cmac_stat_rx_bad_preamble),
+    .cmac_stat_rx_bad_sfd_o(qsfp_0_cmac_stat_rx_bad_sfd),
+    .cmac_stat_rx_got_signal_os_o(qsfp_0_cmac_stat_rx_got_signal_os),
+    .cmac_stat_rx_fragment_o(qsfp_0_cmac_stat_rx_fragment),
+    .cmac_stat_rx_inrangeerr_o(qsfp_0_cmac_stat_rx_inrangeerr),
+    .cmac_stat_rx_jabber_o(qsfp_0_cmac_stat_rx_jabber),
+    .cmac_stat_rx_oversize_o(qsfp_0_cmac_stat_rx_oversize),
+    .cmac_stat_rx_toolong_o(qsfp_0_cmac_stat_rx_toolong),
+    .cmac_stat_rx_truncated_o(qsfp_0_cmac_stat_rx_truncated),
+    .cmac_stat_rx_undersize_o(qsfp_0_cmac_stat_rx_undersize),
+    .cmac_stat_rx_packet_small_o(qsfp_0_cmac_stat_rx_packet_small),
+    .cmac_stat_rx_packet_large_o(qsfp_0_cmac_stat_rx_packet_large),
+    .cmac_stat_rx_test_pattern_mismatch_o(qsfp_0_cmac_stat_rx_test_pattern_mismatch),
+    .cmac_stat_rx_total_good_packets_o(qsfp_0_cmac_stat_rx_total_good_packets),
+    .cmac_stat_rx_total_packets_o(qsfp_0_cmac_stat_rx_total_packets),
+    .cmac_stat_rx_total_bytes_o(qsfp_0_cmac_stat_rx_total_bytes),
+    .cmac_stat_rx_total_good_bytes_o(qsfp_0_cmac_stat_rx_total_good_bytes),
+    .cmac_stat_rx_unicast_o(qsfp_0_cmac_stat_rx_unicast),
+    .cmac_stat_rx_multicast_o(qsfp_0_cmac_stat_rx_multicast),
+    .cmac_stat_rx_broadcast_o(qsfp_0_cmac_stat_rx_broadcast),
+    .cmac_stat_rx_vlan_o(qsfp_0_cmac_stat_rx_vlan),
+    .cmac_stat_rx_packet_64_bytes_o(qsfp_0_cmac_stat_rx_packet_64_bytes),
+    .cmac_stat_rx_packet_65_127_bytes_o(qsfp_0_cmac_stat_rx_packet_65_127_bytes),
+    .cmac_stat_rx_packet_128_255_bytes_o(qsfp_0_cmac_stat_rx_packet_128_255_bytes),
+    .cmac_stat_rx_packet_256_511_bytes_o(qsfp_0_cmac_stat_rx_packet_256_511_bytes),
+    .cmac_stat_rx_packet_512_1023_bytes_o(qsfp_0_cmac_stat_rx_packet_512_1023_bytes),
+    .cmac_stat_rx_packet_1024_1518_bytes_o(qsfp_0_cmac_stat_rx_packet_1024_1518_bytes),
+    .cmac_stat_rx_packet_1519_1522_bytes_o(qsfp_0_cmac_stat_rx_packet_1519_1522_bytes),
+    .cmac_stat_rx_packet_1523_1548_bytes_o(qsfp_0_cmac_stat_rx_packet_1523_1548_bytes),
+    .cmac_stat_rx_packet_1549_2047_bytes_o(qsfp_0_cmac_stat_rx_packet_1549_2047_bytes),
+    .cmac_stat_rx_packet_2048_4095_bytes_o(qsfp_0_cmac_stat_rx_packet_2048_4095_bytes),
+    .cmac_stat_rx_packet_4096_8191_bytes_o(qsfp_0_cmac_stat_rx_packet_4096_8191_bytes),
+    .cmac_stat_rx_packet_8192_9215_bytes_o(qsfp_0_cmac_stat_rx_packet_8192_9215_bytes),
+`ifndef CMAC_RS_FEC_EXCLUDE
+    .cmac_stat_rx_rsfec_am_lock_o(qsfp_0_cmac_stat_rx_rsfec_am_lock),
+    .cmac_stat_rx_rsfec_err_count_inc_o(qsfp_0_cmac_stat_rx_rsfec_err_count_inc),
+    .cmac_stat_rx_rsfec_hi_ser_o(qsfp_0_cmac_stat_rx_rsfec_hi_ser),
+    .cmac_stat_rx_rsfec_lane_alignment_status_o(qsfp_0_cmac_stat_rx_rsfec_lane_alignment_status),
+    .cmac_stat_rx_rsfec_lane_fill_o(qsfp_0_cmac_stat_rx_rsfec_lane_fill),
+    .cmac_stat_rx_rsfec_lane_mapping_o(qsfp_0_cmac_stat_rx_rsfec_lane_mapping),
+    .cmac_stat_rx_rsfec_cw_inc_o(qsfp_0_cmac_stat_rx_rsfec_cw_inc),
+    .cmac_stat_rx_rsfec_corrected_cw_inc_o(qsfp_0_cmac_stat_rx_rsfec_corrected_cw_inc),
+    .cmac_stat_rx_rsfec_uncorrected_cw_inc_o(qsfp_0_cmac_stat_rx_rsfec_uncorrected_cw_inc),
+`endif
+    .cmac_stat_tx_local_fault_o(qsfp_0_cmac_stat_tx_local_fault),
+    .cmac_stat_tx_frame_error_o(qsfp_0_cmac_stat_tx_frame_error),
+    .cmac_stat_tx_bad_fcs_o(qsfp_0_cmac_stat_tx_bad_fcs),
+    .cmac_stat_tx_ptp_fifo_read_error_o(qsfp_0_cmac_stat_tx_ptp_fifo_read_error),
+    .cmac_stat_tx_ptp_fifo_write_error_o(qsfp_0_cmac_stat_tx_ptp_fifo_write_error),
+    .cmac_stat_tx_total_good_packets_o(qsfp_0_cmac_stat_tx_total_good_packets),
+    .cmac_stat_tx_total_packets_o(qsfp_0_cmac_stat_tx_total_packets),
+    .cmac_stat_tx_total_bytes_o(qsfp_0_cmac_stat_tx_total_bytes),
+    .cmac_stat_tx_total_good_bytes_o(qsfp_0_cmac_stat_tx_total_good_bytes),
+    .cmac_stat_tx_unicast_o(qsfp_0_cmac_stat_tx_unicast),
+    .cmac_stat_tx_multicast_o(qsfp_0_cmac_stat_tx_multicast),
+    .cmac_stat_tx_broadcast_o(qsfp_0_cmac_stat_tx_broadcast),
+    .cmac_stat_tx_vlan_o(qsfp_0_cmac_stat_tx_vlan),
+    .cmac_stat_tx_packet_small_o(qsfp_0_cmac_stat_tx_packet_small),
+    .cmac_stat_tx_packet_large_o(qsfp_0_cmac_stat_tx_packet_large),
+    .cmac_stat_tx_packet_64_bytes_o(qsfp_0_cmac_stat_tx_packet_64_bytes),
+    .cmac_stat_tx_packet_65_127_bytes_o(qsfp_0_cmac_stat_tx_packet_65_127_bytes),
+    .cmac_stat_tx_packet_128_255_bytes_o(qsfp_0_cmac_stat_tx_packet_128_255_bytes),
+    .cmac_stat_tx_packet_256_511_bytes_o(qsfp_0_cmac_stat_tx_packet_256_511_bytes),
+    .cmac_stat_tx_packet_512_1023_bytes_o(qsfp_0_cmac_stat_tx_packet_512_1023_bytes),
+    .cmac_stat_tx_packet_1024_1518_bytes_o(qsfp_0_cmac_stat_tx_packet_1024_1518_bytes),
+    .cmac_stat_tx_packet_1519_1522_bytes_o(qsfp_0_cmac_stat_tx_packet_1519_1522_bytes),
+    .cmac_stat_tx_packet_1523_1548_bytes_o(qsfp_0_cmac_stat_tx_packet_1523_1548_bytes),
+    .cmac_stat_tx_packet_1549_2047_bytes_o(qsfp_0_cmac_stat_tx_packet_1549_2047_bytes),
+    .cmac_stat_tx_packet_2048_4095_bytes_o(qsfp_0_cmac_stat_tx_packet_2048_4095_bytes),
+    .cmac_stat_tx_packet_4096_8191_bytes_o(qsfp_0_cmac_stat_tx_packet_4096_8191_bytes),
+    .cmac_stat_tx_packet_8192_9215_bytes_o(qsfp_0_cmac_stat_tx_packet_8192_9215_bytes)
 );
 
 // QSFP1 CMAC

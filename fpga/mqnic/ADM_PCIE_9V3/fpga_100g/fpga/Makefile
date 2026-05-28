@@ -130,6 +130,7 @@ XDC_FILES += ../../../common/syn/vivado/cmac_gty_ch_wrapper.tcl
 IP_TCL_FILES = ip/pcie4_uscale_plus_0.tcl
 IP_TCL_FILES += ip/cmac_usplus.tcl
 IP_TCL_FILES += ip/cmac_gty.tcl
+IP_TCL_FILES += ip/ila_0.tcl
 #IP_TCL_FILES += ip/ddr4_0.tcl
 
 # Configuration
