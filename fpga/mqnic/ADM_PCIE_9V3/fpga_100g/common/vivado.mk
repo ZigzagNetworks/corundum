@@ -118,6 +118,8 @@ $(PROJECT).runs/impl_1/$(PROJECT)_routed.dcp: $(PROJECT).runs/synth_1/$(PROJECT)
 	echo "open_run impl_1" >> run_impl.tcl
 	echo "report_utilization -file $(PROJECT)_utilization.rpt" >> run_impl.tcl
 	echo "report_utilization -hierarchical -file $(PROJECT)_utilization_hierarchical.rpt" >> run_impl.tcl
+	echo "report_timing_summary -delay_type min_max -report_unconstrained -check_timing_verbose -max_paths 10 -input_pins -routable_nets -name timing_check -file $(PROJECT)_timing.rpt" >> run_impl.tcl
+	echo "report_drc -name drc_check -ruledecks {default opt_checks placer_checks router_checks bitstream_checks incr_eco_checks eco_checks abs_checks} -file $(PROJECT)_drc.rpt"
 	vivado -nojournal -nolog -mode batch -source run_impl.tcl
 
 # bit file

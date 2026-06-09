@@ -10,7 +10,7 @@ create_ip -name ila -vendor xilinx.com -library ip -module_name ila_0
 
 set_property -dict [list \
     CONFIG.C_NUM_OF_PROBES         {39} \
-    CONFIG.C_DATA_DEPTH            {8192} \
+    CONFIG.C_DATA_DEPTH            {4096} \
     CONFIG.C_TRIGOUT_EN            {false} \
     CONFIG.C_TRIGIN_EN             {false} \
     CONFIG.C_INPUT_PIPE_STAGES     {2} \
