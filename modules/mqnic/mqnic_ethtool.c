@@ -378,16 +378,15 @@ static int mqnic_get_ts_info(struct net_device *ndev,
 
 // The ADM-PCIE-9V3 (and similar) QSFP module I2C is bit-banged through the FPGA
 // and is unreliable: individual transactions are NAKed a large fraction of the
-// time. Retry each access so an ethtool module read, which chains many
-// transactions, can actually complete.
-#define MQNIC_MODULE_EEPROM_RETRIES 32
+// time. Retry each access until it succeeds, up to this many attempts, so an
+// ethtool module read (which chains many transactions) can actually complete.
+#define MQNIC_MODULE_EEPROM_MAX_TRIES 32
 
 static int mqnic_read_module_eeprom(struct net_device *ndev,
 		u16 offset, u16 len, u8 *data)
 {
 	struct mqnic_priv *priv = netdev_priv(ndev);
-	int tries = MQNIC_MODULE_EEPROM_RETRIES;
-	int ret;
+	int ret = -EINVAL;
 
 	if (!priv->mod_i2c_client)
 		return -EINVAL;
@@ -395,12 +394,12 @@ static int mqnic_read_module_eeprom(struct net_device *ndev,
 	if (len > I2C_SMBUS_BLOCK_MAX)
 		len = I2C_SMBUS_BLOCK_MAX;
 
-	do {
+	for (int i = 0; i < MQNIC_MODULE_EEPROM_MAX_TRIES; i++) {
 		ret = i2c_smbus_read_i2c_block_data(priv->mod_i2c_client, offset, len, data);
 		if (ret >= 0)
 			break;
 		usleep_range(100, 200);
-	} while (--tries);
+	}
 
 	return ret;
 }
@@ -409,8 +408,7 @@ static int mqnic_write_module_eeprom(struct net_device *ndev,
 		u16 offset, u16 len, u8 *data)
 {
 	struct mqnic_priv *priv = netdev_priv(ndev);
-	int tries = MQNIC_MODULE_EEPROM_RETRIES;
-	int ret;
+	int ret = -EINVAL;
 
 	if (!priv->mod_i2c_client)
 		return -EINVAL;
@@ -418,12 +416,12 @@ static int mqnic_write_module_eeprom(struct net_device *ndev,
 	if (len > I2C_SMBUS_BLOCK_MAX)
 		len = I2C_SMBUS_BLOCK_MAX;
 
-	do {
+	for (int i = 0; i < MQNIC_MODULE_EEPROM_MAX_TRIES; i++) {
 		ret = i2c_smbus_write_i2c_block_data(priv->mod_i2c_client, offset, len, data);
 		if (ret >= 0)
 			break;
 		usleep_range(100, 200);
-	} while (--tries);
+	}
 
 	return ret;
 }
