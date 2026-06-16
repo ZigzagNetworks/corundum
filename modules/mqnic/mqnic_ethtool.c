@@ -601,8 +601,67 @@ static int mqnic_get_module_eeprom_by_page(struct net_device *ndev,
 }
 #endif
 
+// Private flags. Order must match the bit positions used in
+// mqnic_get_priv_flags()/mqnic_set_priv_flags().
+static const char mqnic_priv_flags_strings[][ETH_GSTRING_LEN] = {
+	"link-require-tx",
+	"link-require-rx",
+};
+
+#define MQNIC_PRIV_FLAGS_COUNT ARRAY_SIZE(mqnic_priv_flags_strings)
+
+static int mqnic_get_sset_count(struct net_device *ndev, int sset)
+{
+	switch (sset) {
+	case ETH_SS_PRIV_FLAGS:
+		return MQNIC_PRIV_FLAGS_COUNT;
+	default:
+		return -EOPNOTSUPP;
+	}
+}
+
+static void mqnic_get_strings(struct net_device *ndev, u32 sset, u8 *data)
+{
+	switch (sset) {
+	case ETH_SS_PRIV_FLAGS:
+		memcpy(data, mqnic_priv_flags_strings,
+				sizeof(mqnic_priv_flags_strings));
+		break;
+	}
+}
+
+static u32 mqnic_get_priv_flags(struct net_device *ndev)
+{
+	struct mqnic_priv *priv = netdev_priv(ndev);
+	u32 flags = 0;
+
+	if (priv->link_require_tx)
+		flags |= BIT(0);
+	if (priv->link_require_rx)
+		flags |= BIT(1);
+
+	return flags;
+}
+
+static int mqnic_set_priv_flags(struct net_device *ndev, u32 flags)
+{
+	struct mqnic_priv *priv = netdev_priv(ndev);
+
+	if (flags & ~(BIT(MQNIC_PRIV_FLAGS_COUNT) - 1))
+		return -EINVAL;
+
+	priv->link_require_tx = !!(flags & BIT(0));
+	priv->link_require_rx = !!(flags & BIT(1));
+
+	return 0;
+}
+
 const struct ethtool_ops mqnic_ethtool_ops = {
 	.get_drvinfo = mqnic_get_drvinfo,
+	.get_sset_count = mqnic_get_sset_count,
+	.get_strings = mqnic_get_strings,
+	.get_priv_flags = mqnic_get_priv_flags,
+	.set_priv_flags = mqnic_set_priv_flags,
 	.get_regs_len = mqnic_get_regs_len,
 	.get_regs = mqnic_get_regs,
 	.get_link = ethtool_op_get_link,

@@ -506,11 +506,20 @@ static const struct net_device_ops mqnic_netdev_ops = {
 static void mqnic_link_status_timeout(struct timer_list *timer)
 {
 	struct mqnic_priv *priv = from_timer(priv, timer, link_status_timer);
+	bool tx_up = mqnic_port_get_tx_ctrl(priv->port) & MQNIC_PORT_TX_CTRL_STATUS;
+	bool rx_up = mqnic_port_get_rx_ctrl(priv->port) & MQNIC_PORT_RX_CTRL_STATUS;
 	unsigned int up = 1;
 
-	if (!(mqnic_port_get_tx_ctrl(priv->port) & MQNIC_PORT_TX_CTRL_STATUS))
+	// Per-port link-up policy: a direction only gates the carrier when its
+	// link-require-{tx,rx} private flag is set (controlled via ethtool, and
+	// defaulted from the link_require_{tx,rx} module params). Both set
+	// (default) requires a healthy bidirectional link. Clearing one lets a
+	// unidirectional port (e.g. an optical/multicast link that only transmits
+	// or only receives) come up on the remaining direction; an unconnected
+	// port still stays down because the required direction never asserts.
+	if (priv->link_require_tx && !tx_up)
 		up = 0;
-	if (!(mqnic_port_get_rx_ctrl(priv->port) & MQNIC_PORT_RX_CTRL_STATUS))
+	if (priv->link_require_rx && !rx_up)
 		up = 0;
 
 	if (up) {
@@ -567,6 +576,11 @@ struct net_device *mqnic_create_netdev(struct mqnic_if *interface, int index,
 	priv->port = port;
 	priv->port_up = false;
 	priv->sched_block = sched_block;
+
+	// seed per-port link-up policy from module-param defaults; override at
+	// runtime per port with ethtool --set-priv-flags link-require-{tx,rx}
+	priv->link_require_tx = mqnic_link_require_tx;
+	priv->link_require_rx = mqnic_link_require_rx;
 
 	// associate interface resources
 	priv->if_features = interface->if_features;
