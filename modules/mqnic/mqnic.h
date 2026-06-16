@@ -62,6 +62,8 @@ extern unsigned int mqnic_num_txq_entries;
 extern unsigned int mqnic_num_rxq_entries;
 
 extern unsigned int mqnic_link_status_poll;
+extern bool mqnic_link_require_tx;
+extern bool mqnic_link_require_rx;
 
 struct mqnic_dev;
 struct mqnic_if;
@@ -452,6 +454,8 @@ struct mqnic_priv {
 
 	unsigned int link_status;
 	struct timer_list link_status_timer;
+	bool link_require_tx;
+	bool link_require_rx;
 
 	u32 txq_count;
 	u32 rxq_count;
