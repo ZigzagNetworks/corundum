@@ -34,20 +34,33 @@ if [[ ! -e "$MODULE" ]]; then
 fi
 
 # --- load the PATCHED driver (replace the stock auto-loaded one) -------------
+# Detect via /sys/module (plain file tests). Do NOT use `lsmod | grep -q`: under
+# `set -o pipefail`, grep -q closes the pipe on first match so lsmod takes SIGPIPE
+# and the pipeline reports failure — making the check silently miss a loaded
+# module and fall through to insmod (which then fails with "File exists").
 if [[ -e /sys/module/mqnic/parameters/link_require_tx ]]; then
     echo "[*] patched mqnic already loaded"
 else
-    if lsmod | grep -q '^mqnic'; then
-        echo "[*] unloading stock mqnic"
+    if [[ -d /sys/module/mqnic ]]; then
+        echo "[*] default mqnic is loaded — unloading it"
+        # bring down any mqnic interface so the module isn't busy
         for n in /sys/class/net/*; do
             ni=$(basename "$n")
-            if ethtool -i "$ni" 2>/dev/null | grep -q '^driver: mqnic$'; then
+            drv=$(ethtool -i "$ni" 2>/dev/null | awk -F': ' '/^driver:/{print $2}' || true)
+            if [[ "$drv" == mqnic ]]; then
+                echo "    - bringing $ni down"
                 ip link set "$ni" down 2>/dev/null || true
             fi
         done
-        rmmod mqnic
+        rmmod mqnic 2>/dev/null || modprobe -r mqnic 2>/dev/null || true
+        if [[ -d /sys/module/mqnic ]]; then
+            echo "ERROR: could not unload the default mqnic (module still in use)."
+            echo "       Inspect users:  lsmod | grep mqnic"
+            echo "       Free them (down all mqnic ifaces, stop DPDK/capture/ffmpeg) and retry."
+            exit 1
+        fi
     fi
-    echo "[*] inserting $MODULE"
+    echo "[*] inserting patched $MODULE"
     insmod "$MODULE"
 fi
 
