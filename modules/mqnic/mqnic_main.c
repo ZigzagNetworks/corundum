@@ -36,6 +36,16 @@ module_param_named(link_status_poll, mqnic_link_status_poll, uint, 0444);
 MODULE_PARM_DESC(link_status_poll,
 		 "link status polling interval, in ms (default: 1000; 0 to turn off)");
 
+bool mqnic_link_require_tx = true;
+bool mqnic_link_require_rx = true;
+
+module_param_named(link_require_tx, mqnic_link_require_tx, bool, 0644);
+MODULE_PARM_DESC(link_require_tx,
+		 "default for new ports: require TX status for link up (default: 1; set 0 for transmit-less/receive-only ports). Per-port override: ethtool --set-priv-flags <dev> link-require-tx on|off");
+module_param_named(link_require_rx, mqnic_link_require_rx, bool, 0644);
+MODULE_PARM_DESC(link_require_rx,
+		 "default for new ports: require RX status for link up (default: 1; set 0 for receive-less/transmit-only ports). Per-port override: ethtool --set-priv-flags <dev> link-require-rx on|off");
+
 
 #ifdef CONFIG_PCI
 static const struct pci_device_id mqnic_pci_id_table[] = {
