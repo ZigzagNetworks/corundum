@@ -30,9 +30,12 @@ done
 [[ "$found" -eq 1 ]] || echo "    (no mqnic interfaces currently present)"
 
 # --- unload whatever mqnic is loaded ----------------------------------------
-if lsmod | grep -q '^mqnic'; then
+# Detect via /sys/module, not `lsmod | grep -q` (pipefail + grep -q closing the
+# pipe makes lsmod take SIGPIPE and the check falsely report "not loaded").
+if [[ -d /sys/module/mqnic ]]; then
     echo "[*] removing loaded mqnic module"
-    if ! rmmod mqnic; then
+    rmmod mqnic 2>/dev/null || modprobe -r mqnic 2>/dev/null || true
+    if [[ -d /sys/module/mqnic ]]; then
         echo "ERROR: rmmod failed (module in use?). Stop any users of the NIC"
         echo "       (DPDK/vfio bindings, capture tools) and re-run."
         exit 1
