@@ -15,6 +15,9 @@ if [[ "$EUID" -ne 0 ]]; then
     exit 1
 fi
 
+# Resolve paths relative to this script's location (mqnic.ko is in ./mqnic).
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 # --- find corundum interfaces and clear their config ------------------------
 echo "[*] clearing corundum (mqnic) interfaces"
 found=0
@@ -49,7 +52,7 @@ if modprobe mqnic 2>/dev/null; then
 else
     echo "WARNING: 'modprobe mqnic' failed — no installed stock module was found."
     echo "         Your patched build is untouched; load it with:"
-    echo "           sudo insmod /home/${SUDO_USER:-$USER}/Desktop/corundum_multicast/modules/mqnic/mqnic.ko"
+    echo "           sudo insmod $SCRIPT_DIR/mqnic/mqnic.ko"
 fi
 
 # --- report -----------------------------------------------------------------

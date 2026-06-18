@@ -22,7 +22,10 @@ if [[ -z "${1:-}" ]]; then
 fi
 
 ### ---- config --------------------------------------------------------------
-MODULE="/home/${SUDO_USER:-$USER}/Desktop/corundum_multicast/modules/mqnic/mqnic.ko"
+# Resolve paths relative to this script's location (not the cwd), so it works
+# regardless of where it's invoked from. mqnic.ko is built in ./mqnic next door.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+MODULE="$SCRIPT_DIR/mqnic/mqnic.ko"
 IFACE="$1"          # optical port receiving from A
 ### --------------------------------------------------------------------------
 
